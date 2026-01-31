@@ -1,4 +1,4 @@
-// api/news.js - 帶快取和成本控制的新聞抓取 API (v12 穩定版 - 解決 Vercel 超時問題)
+// api/news.js - 帶快取和成本控制的新聞抓取 API (v13 終極修復版 - 增加術語百科)
 
 let newsCache = null;
 let cacheTimestamp = null;
@@ -14,6 +14,21 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+    let BASE_URL = process.env.API_BASE_URL || 'https://api.openai.com/v1';
+    if (BASE_URL.endsWith('/')) BASE_URL = BASE_URL.slice(0, -1);
+    if (!BASE_URL.includes('/v1')) BASE_URL += '/v1';
+    const MODEL = process.env.AI_MODEL || 'gpt-4o-mini';
+
+    // --- 術語百科查詢邏輯 ---
+    if (req.query.term) {
+      if (!OPENAI_API_KEY) {
+        return res.status(200).json({ success: false, error: '缺少 OPENAI_API_KEY' });
+      }
+      return await handleTerminologySearch(req.query.term, BASE_URL, OPENAI_API_KEY, MODEL, res);
+    }
+    // --- 術語百科查詢邏輯結束 ---
+
     const currentDate = new Date().toDateString();
     if (currentDate !== lastResetDate) {
       dailyRequestCount = 0;
@@ -30,14 +45,6 @@ export default async function handler(req, res) {
     }
 
     const NEWS_API_KEY = process.env.NEWS_API_KEY;
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    
-    let BASE_URL = process.env.API_BASE_URL || 'https://api.openai.com/v1';
-    if (BASE_URL.endsWith('/')) BASE_URL = BASE_URL.slice(0, -1);
-    if (!BASE_URL.includes('/v1')) BASE_URL += '/v1';
-
-    const MODEL = process.env.AI_MODEL || 'gpt-4o-mini';
-
     if (!NEWS_API_KEY) throw new Error('未設定 NEWS_API_KEY');
 
     // 1. 從 NewsAPI 抓取新聞（抓取 9 篇）
@@ -96,6 +103,49 @@ export default async function handler(req, res) {
 
   } catch (error) {
     res.status(200).json({ success: false, error: error.message, news: newsCache || getDefaultNews(), timestamp: new Date().toISOString(), fromCache: true });
+  }
+}
+
+async function handleTerminologySearch(term, BASE_URL, OPENAI_API_KEY, MODEL, res) {
+  try {
+    const apiUrl = `${BASE_URL}/chat/completions`;
+    const aiResponse = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: 'system', content: '你是一個專業的財經術語百科助手。請用繁體中文解釋用戶提供的財經術語。' },
+          { role: 'user', content: `請用繁體中文，以專業、簡潔的方式解釋財經術語：${term}。回應格式：{"explanation":"[繁體中文解釋]"}。` }
+        ],
+        temperature: 0.3,
+        response_format: { type: "json_object" }
+      }),
+      signal: AbortSignal.timeout(8000)
+    });
+
+    if (!aiResponse.ok) {
+      throw new Error(`AI API 錯誤 (${aiResponse.status})`);
+    }
+
+    const aiData = await aiResponse.json();
+    const responseText = aiData.choices[0].message.content;
+    const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    try {
+      const parsed = JSON.parse(cleanedText);
+      return res.status(200).json({ success: true, explanation: parsed.explanation });
+    } catch (e) {
+      return res.status(200).json({ success: false, error: 'AI 返回格式錯誤' });
+    }
+
+  } catch (error) {
+    console.error('術語查詢失敗:', error);
+    return res.status(200).json({ success: false, error: `術語查詢失敗: ${error.message}` });
   }
 }
 
