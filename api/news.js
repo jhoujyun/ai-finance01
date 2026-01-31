@@ -1,4 +1,4 @@
-// api/news.js - 帶快取和成本控制的新聞抓取 API (v6 增強版 - 支持 9 條新聞 & sk-*** 穩定版)
+// api/news.js - 帶快取和成本控制的新聞抓取 API (v12 穩定版 - 解決 Vercel 超時問題)
 
 let newsCache = null;
 let cacheTimestamp = null;
@@ -52,62 +52,40 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, news: newsCache, timestamp: new Date().toISOString(), fromCache: true });
     }
 
-    // 2. AI 處理 (標準 OpenAI 格式)
+    // 2. AI 處理 (改為 Promise.all 並行處理，避免 Vercel 超時)
     let processedNews;
     if (OPENAI_API_KEY) {
-      const batchPrompt = articles.slice(0, 9).map((article, i) => 
-        `新聞 ${i + 1}:\n標題: ${article.title}\n內容: ${article.description || article.content?.substring(0, 200) || ''}\n來源: ${article.source.name}`
-      ).join('\n\n---\n\n');
+      dailyRequestCount++; // 每次更新只算一次總請求
+      
+      const processingPromises = articles.slice(0, 9).map((article, index) => 
+        processSingleArticle(article, index, BASE_URL, OPENAI_API_KEY, MODEL)
+      );
 
-      try {
-        dailyRequestCount++;
-        const apiUrl = `${BASE_URL}/chat/completions`;
-
-        const aiResponse = await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-          },
-          body: JSON.stringify({
-            model: MODEL,
-            messages: [
-              { role: 'system', content: '你是一個專業的財經翻譯和分析助手。請將新聞翻譯成繁體中文，並提供投資解讀。' },
-              { role: 'user', content: `請將以下 ${articles.length} 則新聞翻譯成繁體中文，並提供 AI 投資解讀。請以 JSON 陣列格式回應，不要包含 markdown 標記：\n\n${batchPrompt}\n\n回應格式：[{"title":"...","summary":"...","aiInsight":"...","category":"..."}]` }
-            ],
-            temperature: 0.7
-          })
-        });
-
-        if (!aiResponse.ok) {
-          const errorDetail = await aiResponse.text();
-          if (errorDetail.includes('<!DOCTYPE html>')) {
-            throw new Error(`被 Cloudflare 攔截。請檢查中轉站地址。`);
-          }
-          throw new Error(`AI API 錯誤 (${aiResponse.status}): ${errorDetail.substring(0, 50)}`);
+      // 使用 Promise.allSettled 確保即使部分失敗，其他成功的也能返回
+      const results = await Promise.allSettled(processingPromises);
+      
+      processedNews = results.map((result, index) => {
+        const originalArticle = articles[index];
+        if (result.status === 'fulfilled') {
+          return {
+            id: index + 1,
+            title: result.value.title,
+            source: originalArticle.source.name,
+            time: getRelativeTime(originalArticle.publishedAt),
+            summary: result.value.summary,
+            aiInsight: result.value.aiInsight,
+            category: result.value.category,
+            url: originalArticle.url,
+            image: originalArticle.urlToImage,
+            originalTitle: originalArticle.title
+          };
+        } else {
+          // 處理失敗，使用原始數據作為回退
+          console.error(`處理新聞 ${index + 1} 失敗:`, result.reason);
+          return createFallbackNews([originalArticle], `AI 處理失敗: ${result.reason.message || '未知錯誤'}`)[0];
         }
+      });
 
-        const aiData = await aiResponse.json();
-        const responseText = aiData.choices[0].message.content;
-        const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const parsedArray = JSON.parse(cleanedText);
-
-        processedNews = parsedArray.map((parsed, index) => ({
-          id: index + 1,
-          title: parsed.title,
-          source: articles[index].source.name,
-          time: getRelativeTime(articles[index].publishedAt),
-          summary: parsed.summary,
-          aiInsight: parsed.aiInsight,
-          category: parsed.category,
-          url: articles[index].url,
-          image: articles[index].urlToImage,
-          originalTitle: articles[index].title
-        }));
-      } catch (error) {
-        processedNews = createFallbackNews(articles, error.message);
-      }
     } else {
       processedNews = createFallbackNews(articles, '缺少 OPENAI_API_KEY');
     }
@@ -121,6 +99,50 @@ export default async function handler(req, res) {
   }
 }
 
+async function processSingleArticle(article, index, BASE_URL, OPENAI_API_KEY, MODEL) {
+  const apiUrl = `${BASE_URL}/chat/completions`;
+  const articleContent = article.description || article.content?.substring(0, 200) || '';
+
+  const aiResponse = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: '你是一個專業的財經翻譯和分析助手。請將新聞翻譯成繁體中文，並提供投資解讀。請以 JSON 格式回應，不要包含 markdown 標記。' },
+        { role: 'user', content: `請將以下新聞翻譯成繁體中文，並提供 AI 投資解讀。回應格式：{"title":"[繁體中文標題]","summary":"[繁體中文摘要]","aiInsight":"[繁體中文投資解讀]","category":"[繁體中文類別]"}。新聞內容:\n標題: ${article.title}\n摘要: ${articleContent}\n來源: ${article.source.name}` }
+      ],
+      temperature: 0.5,
+      response_format: { type: "json_object" } // 確保返回 JSON 對象
+    }),
+    // 設置一個短的超時，例如 8 秒，以確保 Vercel 函數不會超時
+    signal: AbortSignal.timeout(8000) 
+  });
+
+  if (!aiResponse.ok) {
+    const errorDetail = await aiResponse.text();
+    if (errorDetail.includes('<!DOCTYPE html>')) {
+      throw new Error(`被 Cloudflare 攔截。請檢查中轉站地址。`);
+    }
+    throw new Error(`AI API 錯誤 (${aiResponse.status}): ${errorDetail.substring(0, 50)}`);
+  }
+
+  const aiData = await aiResponse.json();
+  const responseText = aiData.choices[0].message.content;
+  // 移除可能的 markdown 標記，並確保是 JSON 對象
+  const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  
+  try {
+    return JSON.parse(cleanedText);
+  } catch (e) {
+    throw new Error(`JSON 解析失敗: ${e.message}. 原始響應: ${cleanedText.substring(0, 100)}`);
+  }
+}
+
 function articlesAreSame(newArticles, cachedNews) {
   if (!cachedNews || newArticles.length !== cachedNews.length) return false;
   return newArticles.every((article, i) => cachedNews[i] && article.title === cachedNews[i].originalTitle);
@@ -129,11 +151,11 @@ function articlesAreSame(newArticles, cachedNews) {
 function createFallbackNews(articles, errorMessage = '') {
   return articles.slice(0, 9).map((article, index) => ({
     id: index + 1,
-    title: article.title,
+    title: article.title, // 失敗時保留英文標題
     source: article.source.name,
     time: getRelativeTime(article.publishedAt),
     summary: article.description || '請點擊閱讀原文查看詳情',
-    aiInsight: `💡 狀態：${errorMessage}`,
+    aiInsight: `💡 AI 處理失敗: ${errorMessage}`,
     category: '系統提示',
     url: article.url,
     image: article.urlToImage,

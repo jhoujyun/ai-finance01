@@ -4,6 +4,34 @@ import {
   ChevronRight, AlertCircle, Globe, DollarSign, PieChart, Search, Plus, Trash2
 } from 'lucide-react';
 
+const NewsSkeleton = () => (
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {[...Array(9)].map((_, i) => (
+      <div key={i} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-md flex flex-col animate-pulse">
+        <div className="p-5 flex-grow">
+          <div className="flex items-center justify-between mb-3">
+            <div className="h-4 w-16 bg-slate-200 rounded-md"></div>
+            <div className="h-3 w-12 bg-slate-200 rounded-md"></div>
+          </div>
+          <div className="h-6 w-full bg-slate-300 rounded-md mb-2"></div>
+          <div className="h-6 w-3/4 bg-slate-300 rounded-md mb-4"></div>
+          <div className="h-4 w-full bg-slate-200 rounded-md mb-4"></div>
+          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+            <div className="flex items-center text-indigo-600 mb-2">
+              <div className="h-4 w-24 bg-indigo-200 rounded-md"></div>
+            </div>
+            <div className="h-4 w-full bg-slate-200 rounded-md mb-1"></div>
+            <div className="h-4 w-5/6 bg-slate-200 rounded-md"></div>
+          </div>
+        </div>
+        <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+          <div className="h-4 w-20 bg-slate-200 rounded-md"></div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
 const App = () => {
   const [activeTab, setActiveTab] = useState('news');
   const [news, setNews] = useState([]);
@@ -120,6 +148,9 @@ const App = () => {
 
       <main className="max-w-6xl mx-auto px-4 py-8">
         {activeTab === 'news' && (
+          <>
+            {loading && news.length === 0 && <NewsSkeleton />}
+            {news.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {news.map((item, i) => (
               <div key={i} className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xl transition-all duration-300 flex flex-col group">
@@ -133,13 +164,13 @@ const App = () => {
                   <h3 className="text-lg font-bold mb-3 leading-snug group-hover:text-indigo-600 transition-colors">
                     {item.title}
                   </h3>
-                  <p className="text-slate-500 text-sm line-clamp-2 mb-4">{item.description}</p>
+                  <p className="text-slate-500 text-sm line-clamp-2 mb-4">{item.summary}</p>
                   <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                     <div className="flex items-center text-indigo-600 mb-2">
                       <TrendingUp className="w-4 h-4 mr-1.5" />
                       <span className="text-xs font-bold uppercase tracking-widest">AI 深度解讀</span>
                     </div>
-                    <p className="text-slate-700 text-sm leading-relaxed">{item.aiAnalysis}</p>
+                    <p className="text-slate-700 text-sm leading-relaxed">{item.aiInsight}</p>
                   </div>
                 </div>
                 <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
@@ -242,9 +273,11 @@ const App = () => {
                   </div>
                 ))}
               </div>
-            </div>
-          </div>
-        )}
+</div>
+	          </div>
+            )}
+          </>
+	        )}
 
         {activeTab === 'wiki' && (
           <div className="max-w-2xl mx-auto">
