@@ -74,8 +74,21 @@ const App = () => {
   const [termLoading, setTermLoading] = useState(false);
 
   // 計算器狀態
-  const [calcDisplay, setCalcDisplay] = useState('0');
-  const [calcInput, setCalcInput] = useState('');
+  const [calcMode, setCalcMode] = useState('compound'); // compound, mortgage, roi
+  const [compoundPrincipal, setCompoundPrincipal] = useState('');
+  const [compoundRate, setCompoundRate] = useState('');
+  const [compoundYears, setCompoundYears] = useState('');
+  const [compoundResult, setCompoundResult] = useState(null);
+
+  const [mortgagePrincipal, setMortgagePrincipal] = useState('');
+  const [mortgageRate, setMortgageRate] = useState('');
+  const [mortgageYears, setMortgageYears] = useState('');
+  const [mortgageResult, setMortgageResult] = useState(null);
+
+  const [roiInitial, setRoiInitial] = useState('');
+  const [roiFinal, setRoiFinal] = useState('');
+  const [roiYears, setRoiYears] = useState('');
+  const [roiResult, setRoiResult] = useState(null);
 
   useEffect(() => {
     localStorage.setItem('portfolio', JSON.stringify(portfolio));
@@ -164,24 +177,56 @@ const App = () => {
     }
   };
 
-  // 計算器邏輯
-  const handleCalcInput = (value) => {
-    if (value === '=') {
-      try {
-        const result = eval(calcInput);
-        setCalcDisplay(String(result));
-        setCalcInput('');
-      } catch (e) {
-        setCalcDisplay('錯誤');
-        setCalcInput('');
-      }
-    } else if (value === 'C') {
-      setCalcDisplay('0');
-      setCalcInput('');
-    } else {
-      const newInput = calcInput + value;
-      setCalcInput(newInput);
-      setCalcDisplay(newInput || '0');
+  // 複利計算
+  const calculateCompound = () => {
+    const p = parseFloat(compoundPrincipal);
+    const r = parseFloat(compoundRate) / 100;
+    const t = parseFloat(compoundYears);
+    if (p > 0 && r >= 0 && t > 0) {
+      const result = p * Math.pow(1 + r, t);
+      setCompoundResult({
+        principal: p,
+        finalAmount: result,
+        interest: result - p,
+        rate: r * 100
+      });
+    }
+  };
+
+  // 房貸月供計算
+  const calculateMortgage = () => {
+    const p = parseFloat(mortgagePrincipal);
+    const r = parseFloat(mortgageRate) / 100 / 12;
+    const n = parseFloat(mortgageYears) * 12;
+    if (p > 0 && r >= 0 && n > 0) {
+      const monthlyPayment = (p * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+      const totalPayment = monthlyPayment * n;
+      setMortgageResult({
+        monthlyPayment: monthlyPayment,
+        totalPayment: totalPayment,
+        totalInterest: totalPayment - p,
+        principal: p
+      });
+    }
+  };
+
+  // ROI 計算
+  const calculateROI = () => {
+    const initial = parseFloat(roiInitial);
+    const final = parseFloat(roiFinal);
+    const years = parseFloat(roiYears);
+    if (initial > 0 && final > 0 && years > 0) {
+      const totalReturn = final - initial;
+      const roi = (totalReturn / initial) * 100;
+      const annualROI = (Math.pow(final / initial, 1 / years) - 1) * 100;
+      setRoiResult({
+        initialInvestment: initial,
+        finalValue: final,
+        totalReturn: totalReturn,
+        roi: roi,
+        annualROI: annualROI,
+        years: years
+      });
     }
   };
 
@@ -406,7 +451,7 @@ const App = () => {
                 <BookOpen className="w-6 h-6 mr-2 text-indigo-600" />
                 財經術語百科
               </h2>
-              <div className="flex space-x-2 mb-8">
+              <div className="flex space-x-2 mb-6">
                 <input 
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -417,6 +462,23 @@ const App = () => {
                 <button onClick={handleSearchTerm} className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors">
                   查詢
                 </button>
+              </div>
+              <div className="mb-8">
+                <p className="text-sm text-slate-500 font-bold mb-3 uppercase">熱門術語</p>
+                <div className="flex flex-wrap gap-2">
+                  {['縮表', '非農', '降息', '升息', 'QE', 'CPI', 'GDP', '熊市', '牛市', '回購'].map(term => (
+                    <button
+                      key={term}
+                      onClick={() => {
+                        setSearchTerm(term);
+                        setTimeout(() => handleSearchTerm(), 0);
+                      }}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-600 text-sm font-bold rounded-lg transition-colors"
+                    >
+                      {term}
+                    </button>
+                  ))}
+                </div>
               </div>
               {termResult && (
                 <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 animate-in fade-in slide-in-from-bottom-2">
@@ -438,53 +500,200 @@ const App = () => {
 
         {/* 計算器標籤 */}
         {activeTab === 'calc' && (
-          <div className="max-w-md mx-auto">
+          <div className="max-w-4xl mx-auto">
             <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
               <h2 className="text-2xl font-bold mb-6 flex items-center">
                 <Calculator className="w-6 h-6 mr-2 text-indigo-600" />
                 財經計算器
               </h2>
-              <div className="bg-slate-900 rounded-xl p-6 mb-6">
-                <div className="text-right text-white text-4xl font-bold font-mono break-words">
-                  {calcDisplay}
-                </div>
-              </div>
-              <div className="grid grid-cols-4 gap-3">
-                {['7', '8', '9', '/'].map(btn => (
-                  <button key={btn} onClick={() => handleCalcInput(btn)} className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-4 rounded-lg transition-colors">
-                    {btn}
-                  </button>
-                ))}
-                {['4', '5', '6', '*'].map(btn => (
-                  <button key={btn} onClick={() => handleCalcInput(btn)} className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-4 rounded-lg transition-colors">
-                    {btn}
-                  </button>
-                ))}
-                {['1', '2', '3', '-'].map(btn => (
-                  <button key={btn} onClick={() => handleCalcInput(btn)} className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-4 rounded-lg transition-colors">
-                    {btn}
-                  </button>
-                ))}
-                {['0', '.', '+', '='].map(btn => (
-                  <button 
-                    key={btn} 
-                    onClick={() => handleCalcInput(btn)} 
-                    className={`font-bold py-4 rounded-lg transition-colors ${
-                      btn === '=' 
-                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white' 
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+              
+              {/* 計算器模式切換 */}
+              <div className="flex space-x-2 mb-8">
+                {[
+                  { id: 'compound', label: '複利計算' },
+                  { id: 'mortgage', label: '房貸月供' },
+                  { id: 'roi', label: 'ROI 回報率' }
+                ].map(mode => (
+                  <button
+                    key={mode.id}
+                    onClick={() => setCalcMode(mode.id)}
+                    className={`px-6 py-2 rounded-lg font-bold transition-colors ${
+                      calcMode === mode.id
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                     }`}
                   >
-                    {btn}
+                    {mode.label}
                   </button>
                 ))}
-                <button 
-                  onClick={() => handleCalcInput('C')} 
-                  className="col-span-4 bg-rose-600 hover:bg-rose-700 text-white font-bold py-4 rounded-lg transition-colors"
-                >
-                  清除
-                </button>
               </div>
+
+              {/* 複利計算 */}
+              {calcMode === 'compound' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <input
+                      type="number"
+                      placeholder="本金 ($)"
+                      value={compoundPrincipal}
+                      onChange={(e) => setCompoundPrincipal(e.target.value)}
+                      className="px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="年利率 (%)"
+                      value={compoundRate}
+                      onChange={(e) => setCompoundRate(e.target.value)}
+                      className="px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="年數"
+                      value={compoundYears}
+                      onChange={(e) => setCompoundYears(e.target.value)}
+                      className="px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <button
+                    onClick={calculateCompound}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-colors"
+                  >
+                    計算複利
+                  </button>
+                  {compoundResult && (
+                    <div className="bg-indigo-50 rounded-xl p-6 border border-indigo-100">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-sm text-slate-500 font-bold uppercase">本金</div>
+                          <div className="text-2xl font-bold text-slate-800">${compoundResult.principal.toFixed(2)}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-slate-500 font-bold uppercase">利息</div>
+                          <div className="text-2xl font-bold text-emerald-600">${compoundResult.interest.toFixed(2)}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-slate-500 font-bold uppercase">年利率</div>
+                          <div className="text-2xl font-bold text-slate-800">{compoundResult.rate.toFixed(2)}%</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-slate-500 font-bold uppercase">最終金額</div>
+                          <div className="text-2xl font-bold text-indigo-600">${compoundResult.finalAmount.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 房貸月供 */}
+              {calcMode === 'mortgage' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <input
+                      type="number"
+                      placeholder="貸款金額 ($)"
+                      value={mortgagePrincipal}
+                      onChange={(e) => setMortgagePrincipal(e.target.value)}
+                      className="px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="年利率 (%)"
+                      value={mortgageRate}
+                      onChange={(e) => setMortgageRate(e.target.value)}
+                      className="px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="貸款年限"
+                      value={mortgageYears}
+                      onChange={(e) => setMortgageYears(e.target.value)}
+                      className="px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <button
+                    onClick={calculateMortgage}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-colors"
+                  >
+                    計算月供
+                  </button>
+                  {mortgageResult && (
+                    <div className="bg-indigo-50 rounded-xl p-6 border border-indigo-100">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-sm text-slate-500 font-bold uppercase">月供金額</div>
+                          <div className="text-2xl font-bold text-indigo-600">${mortgageResult.monthlyPayment.toFixed(2)}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-slate-500 font-bold uppercase">總利息</div>
+                          <div className="text-2xl font-bold text-rose-600">${mortgageResult.totalInterest.toFixed(2)}</div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="text-sm text-slate-500 font-bold uppercase">總還款額</div>
+                          <div className="text-2xl font-bold text-slate-800">${mortgageResult.totalPayment.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ROI 計算 */}
+              {calcMode === 'roi' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <input
+                      type="number"
+                      placeholder="初始投資 ($)"
+                      value={roiInitial}
+                      onChange={(e) => setRoiInitial(e.target.value)}
+                      className="px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="最終價值 ($)"
+                      value={roiFinal}
+                      onChange={(e) => setRoiFinal(e.target.value)}
+                      className="px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="投資年數"
+                      value={roiYears}
+                      onChange={(e) => setRoiYears(e.target.value)}
+                      className="px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <button
+                    onClick={calculateROI}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-colors"
+                  >
+                    計算 ROI
+                  </button>
+                  {roiResult && (
+                    <div className="bg-indigo-50 rounded-xl p-6 border border-indigo-100">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-sm text-slate-500 font-bold uppercase">總回報率</div>
+                          <div className="text-2xl font-bold text-emerald-600">{roiResult.roi.toFixed(2)}%</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-slate-500 font-bold uppercase">年化回報率</div>
+                          <div className="text-2xl font-bold text-emerald-600">{roiResult.annualROI.toFixed(2)}%</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-slate-500 font-bold uppercase">總收益</div>
+                          <div className="text-2xl font-bold text-slate-800">${roiResult.totalReturn.toFixed(2)}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-slate-500 font-bold uppercase">最終價值</div>
+                          <div className="text-2xl font-bold text-indigo-600">${roiResult.finalValue.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

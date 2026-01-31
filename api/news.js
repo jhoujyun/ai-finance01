@@ -1,4 +1,4 @@
-// api/news.js - 帶快取和成本控制的新聞抓取 API (v13 終極修復版 - 增加術語百科)
+// api/news.js - 帶快取和成本控制的新聞抓取 API (v14 專業版 - 修復 429 限流)
 
 let newsCache = null;
 let cacheTimestamp = null;
@@ -6,6 +6,24 @@ const CACHE_DURATION = 30 * 60 * 1000;
 const MAX_DAILY_REQUESTS = 50; 
 let dailyRequestCount = 0;
 let lastResetDate = new Date().toDateString();
+
+// 術語百科快取
+let terminologyCache = {};
+const TERMINOLOGY_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 小時
+
+// 熱門術語預定義（避免 API 調用）
+const POPULAR_TERMS = {
+  '縮表': '央行減少資產負債表規模，通常通過不再購買新的資產或讓現有資產到期而不再購買來實現。這是一種緊縮貨幣政策工具。',
+  '非農': '美國非農就業人數，是衡量美國就業市場健康狀況的重要經濟指標。每月首週五發布，對美元和股市影響重大。',
+  '降息': '央行降低基準利率，使借貸成本下降，促進經濟增長。通常在經濟衰退或通脹下降時進行。',
+  '升息': '央行提高基準利率，使借貸成本上升，抑制通脹。通常在經濟過熱或通脹上升時進行。',
+  'QE': '量化寬鬆政策，央行通過購買長期資產來增加貨幣供應量，降低長期利率。',
+  'CPI': '消費者物價指數，衡量消費者購買商品和服務的平均價格變化，是衡量通脹的重要指標。',
+  'GDP': '國內生產總值，衡量一個國家在特定時期內生產的所有商品和服務的總價值。',
+  '熊市': '股票市場持續下跌的時期，投資者信心低落，通常下跌 20% 以上。',
+  '牛市': '股票市場持續上升的時期，投資者信心高漲，通常上升 20% 以上。',
+  '回購': '公司用現金買回自己的股票，減少流通股數，通常用於提高每股收益或穩定股價。'
+};
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -20,12 +38,26 @@ export default async function handler(req, res) {
     if (!BASE_URL.includes('/v1')) BASE_URL += '/v1';
     const MODEL = process.env.AI_MODEL || 'gpt-4o-mini';
 
-    // --- 術語百科查詢邏輯 ---
+    // --- 術語百科查詢邏輯 (v14 - 增加快取和熱門術語) ---
     if (req.query.term) {
+      const term = req.query.term.trim();
+      
+      // 1. 檢查熱門術語庫
+      if (POPULAR_TERMS[term]) {
+        return res.status(200).json({ success: true, explanation: POPULAR_TERMS[term] });
+      }
+
+      // 2. 檢查快取
+      if (terminologyCache[term] && terminologyCache[term].timestamp && (Date.now() - terminologyCache[term].timestamp < TERMINOLOGY_CACHE_DURATION)) {
+        return res.status(200).json({ success: true, explanation: terminologyCache[term].explanation });
+      }
+
+      // 3. 調用 AI API（帶重試機制）
       if (!OPENAI_API_KEY) {
         return res.status(200).json({ success: false, error: '缺少 OPENAI_API_KEY' });
       }
-      return await handleTerminologySearch(req.query.term, BASE_URL, OPENAI_API_KEY, MODEL, res);
+
+      return await handleTerminologySearchWithRetry(term, BASE_URL, OPENAI_API_KEY, MODEL, res, 3);
     }
     // --- 術語百科查詢邏輯結束 ---
 
@@ -106,46 +138,67 @@ export default async function handler(req, res) {
   }
 }
 
-async function handleTerminologySearch(term, BASE_URL, OPENAI_API_KEY, MODEL, res) {
-  try {
-    const apiUrl = `${BASE_URL}/chat/completions`;
-    const aiResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: 'system', content: '你是一個專業的財經術語百科助手。請用繁體中文解釋用戶提供的財經術語。' },
-          { role: 'user', content: `請用繁體中文，以專業、簡潔的方式解釋財經術語：${term}。回應格式：{"explanation":"[繁體中文解釋]"}。` }
-        ],
-        temperature: 0.3,
-        response_format: { type: "json_object" }
-      }),
-      signal: AbortSignal.timeout(8000)
-    });
-
-    if (!aiResponse.ok) {
-      throw new Error(`AI API 錯誤 (${aiResponse.status})`);
-    }
-
-    const aiData = await aiResponse.json();
-    const responseText = aiData.choices[0].message.content;
-    const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    
+// 帶重試機制的術語查詢
+async function handleTerminologySearchWithRetry(term, BASE_URL, OPENAI_API_KEY, MODEL, res, retries = 3) {
+  for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const parsed = JSON.parse(cleanedText);
-      return res.status(200).json({ success: true, explanation: parsed.explanation });
-    } catch (e) {
-      return res.status(200).json({ success: false, error: 'AI 返回格式錯誤' });
-    }
+      const apiUrl = `${BASE_URL}/chat/completions`;
+      const aiResponse = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [
+            { role: 'system', content: '你是一個專業的財經術語百科助手。請用繁體中文解釋用戶提供的財經術語。' },
+            { role: 'user', content: `請用繁體中文，以專業、簡潔的方式解釋財經術語：${term}。回應格式：{"explanation":"[繁體中文解釋]"}。` }
+          ],
+          temperature: 0.3,
+          response_format: { type: "json_object" }
+        }),
+        signal: AbortSignal.timeout(8000)
+      });
 
-  } catch (error) {
-    console.error('術語查詢失敗:', error);
-    return res.status(200).json({ success: false, error: `術語查詢失敗: ${error.message}` });
+      // 如果遇到 429，等待後重試
+      if (aiResponse.status === 429) {
+        if (attempt < retries - 1) {
+          const waitTime = Math.pow(2, attempt) * 1000; // 指數退避：1s, 2s, 4s
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        } else {
+          return res.status(200).json({ success: false, error: '服務暫時繁忙，請稍後重試' });
+        }
+      }
+
+      if (!aiResponse.ok) {
+        throw new Error(`AI API 錯誤 (${aiResponse.status})`);
+      }
+
+      const aiData = await aiResponse.json();
+      const responseText = aiData.choices[0].message.content;
+      const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      
+      try {
+        const parsed = JSON.parse(cleanedText);
+        // 快取結果
+        terminologyCache[term] = {
+          explanation: parsed.explanation,
+          timestamp: Date.now()
+        };
+        return res.status(200).json({ success: true, explanation: parsed.explanation });
+      } catch (e) {
+        return res.status(200).json({ success: false, error: 'AI 返回格式錯誤' });
+      }
+
+    } catch (error) {
+      console.error(`術語查詢嘗試 ${attempt + 1} 失敗:`, error.message);
+      if (attempt === retries - 1) {
+        return res.status(200).json({ success: false, error: `術語查詢失敗: ${error.message}` });
+      }
+    }
   }
 }
 
@@ -167,9 +220,8 @@ async function processSingleArticle(article, index, BASE_URL, OPENAI_API_KEY, MO
         { role: 'user', content: `請將以下新聞翻譯成繁體中文，並提供 AI 投資解讀。回應格式：{"title":"[繁體中文標題]","summary":"[繁體中文摘要]","aiInsight":"[繁體中文投資解讀]","category":"[繁體中文類別]"}。新聞內容:\n標題: ${article.title}\n摘要: ${articleContent}\n來源: ${article.source.name}` }
       ],
       temperature: 0.5,
-      response_format: { type: "json_object" } // 確保返回 JSON 對象
+      response_format: { type: "json_object" }
     }),
-    // 設置一個短的超時，例如 8 秒，以確保 Vercel 函數不會超時
     signal: AbortSignal.timeout(8000) 
   });
 
@@ -183,7 +235,6 @@ async function processSingleArticle(article, index, BASE_URL, OPENAI_API_KEY, MO
 
   const aiData = await aiResponse.json();
   const responseText = aiData.choices[0].message.content;
-  // 移除可能的 markdown 標記，並確保是 JSON 對象
   const cleanedText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
   
   try {
@@ -201,7 +252,7 @@ function articlesAreSame(newArticles, cachedNews) {
 function createFallbackNews(articles, errorMessage = '') {
   return articles.slice(0, 9).map((article, index) => ({
     id: index + 1,
-    title: article.title, // 失敗時保留英文標題
+    title: article.title,
     source: article.source.name,
     time: getRelativeTime(article.publishedAt),
     summary: article.description || '請點擊閱讀原文查看詳情',
