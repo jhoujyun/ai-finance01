@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://f-url.com/sitemap.xml
