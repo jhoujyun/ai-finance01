@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Newspaper, Calendar, TrendingUp, BookOpen, RefreshCw, 
-  ChevronRight, AlertCircle, Globe, DollarSign, PieChart, Search, Plus, Trash2, Calculator
+  ChevronRight, AlertCircle, Globe, DollarSign, PieChart, Search, Plus, Trash2, Calculator, Menu, X
 } from 'lucide-react';
 
 const NewsSkeleton = () => (
@@ -72,6 +72,7 @@ const App = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [termResult, setTermResult] = useState(null);
   const [termLoading, setTermLoading] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // 計算器狀態
   const [calcMode, setCalcMode] = useState('compound'); // compound, mortgage, roi
@@ -94,28 +95,30 @@ const App = () => {
     localStorage.setItem('portfolio', JSON.stringify(portfolio));
   }, [portfolio]);
 
-  // 獨立加載新聞
+  useEffect(() => {
+    fetchNews();
+    fetchCalendar();
+    fetchMarketData();
+  }, []);
+
   const fetchNews = async () => {
     setNewsLoading(true);
     setNewsError(null);
     try {
       const res = await fetch('/api/news');
       const data = await res.json();
-      if (data.success && data.news) {
-        setNews(data.news);
+      if (data.success) {
+        setNews(data.news || []);
       } else {
-        setNewsError('無法獲取新聞數據');
-        setNews([]);
+        setNewsError(data.error || '新聞加載失敗');
       }
-    } catch (err) {
-      setNewsError(`新聞加載失敗: ${err.message}`);
-      setNews([]);
+    } catch (e) {
+      setNewsError('網絡連接失敗');
     } finally {
       setNewsLoading(false);
     }
   };
 
-  // 獨立加載日曆
   const fetchCalendar = async () => {
     setCalendarLoading(true);
     setCalendarError(null);
@@ -125,53 +128,44 @@ const App = () => {
       if (data.success) {
         setCalendar(data.events || []);
       } else {
-        setCalendarError('無法獲取日曆數據');
-        setCalendar([]);
+        setCalendarError(data.error || '日曆加載失敗');
       }
-    } catch (err) {
-      setCalendarError(`日曆加載失敗: ${err.message}`);
-      setCalendar([]);
+    } catch (e) {
+      setCalendarError('網絡連接失敗');
     } finally {
       setCalendarLoading(false);
     }
   };
 
-  // 獨立加載市場數據
   const fetchMarketData = async () => {
     setMarketLoading(true);
     try {
       const res = await fetch('/api/market');
       const data = await res.json();
-      if (data.success && data.data) {
-        setMarketData(data.data);
+      if (data.success) {
+        setMarketData(data.data || []);
       }
-    } catch (err) {
-      console.error('市場數據加載失敗:', err);
+    } catch (e) {
+      console.error('市場數據加載失敗:', e);
     } finally {
       setMarketLoading(false);
     }
   };
 
-  // 初始化加載
-  useEffect(() => {
-    fetchNews();
-    fetchCalendar();
-    fetchMarketData();
-    const interval = setInterval(fetchMarketData, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // 術語查詢
   const handleSearchTerm = async () => {
-    if (!searchTerm) return;
+    if (!searchTerm.trim()) return;
     setTermLoading(true);
     setTermResult(null);
     try {
       const res = await fetch(`/api/news?term=${encodeURIComponent(searchTerm)}`);
       const data = await res.json();
-      setTermResult(data);
+      if (data.success) {
+        setTermResult({ explanation: data.explanation });
+      } else {
+        setTermResult({ error: data.error || '查詢失敗' });
+      }
     } catch (e) {
-      setTermResult({ error: '查詢失敗' });
+      setTermResult({ error: '網絡連接失敗' });
     } finally {
       setTermLoading(false);
     }
@@ -230,6 +224,14 @@ const App = () => {
     }
   };
 
+  const menuItems = [
+    { id: 'news', icon: Newspaper, label: '即時新聞' },
+    { id: 'calendar', icon: Calendar, label: '經濟日曆' },
+    { id: 'portfolio', icon: PieChart, label: '投資組合' },
+    { id: 'wiki', icon: BookOpen, label: '術語百科' },
+    { id: 'calc', icon: Calculator, label: '計算器' }
+  ];
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
       {/* Market Ticker */}
@@ -247,22 +249,19 @@ const App = () => {
       </div>
 
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
+          {/* Logo 和標題 */}
+          <div className="flex items-center space-x-2 flex-shrink-0">
             <div className="bg-indigo-600 p-1.5 rounded-lg">
-              <TrendingUp className="text-white w-6 h-6" />
+              <TrendingUp className="text-white w-5 h-5" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-800">AI 全球財經終端</h1>
+            <h1 className="text-base md:text-xl font-bold tracking-tight text-slate-800 whitespace-nowrap">AI 全球財經終端</h1>
           </div>
-          <nav className="flex space-x-1">
-            {[
-              { id: 'news', icon: Newspaper, label: '即時新聞' },
-              { id: 'calendar', icon: Calendar, label: '經濟日曆' },
-              { id: 'portfolio', icon: PieChart, label: '投資組合' },
-              { id: 'wiki', icon: BookOpen, label: '術語百科' },
-              { id: 'calc', icon: Calculator, label: '計算器' }
-            ].map(tab => (
+          
+          {/* 桌面版導航 */}
+          <nav className="hidden md:flex space-x-1">
+            {menuItems.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -277,12 +276,66 @@ const App = () => {
               </button>
             ))}
           </nav>
-          <div className="flex space-x-2">
+
+          {/* 手機版導航 - 只顯示新聞圖標 */}
+          <nav className="md:hidden flex items-center">
+            <button
+              onClick={() => {
+                setActiveTab('news');
+                setMobileMenuOpen(false);
+              }}
+              className={`flex items-center px-3 py-2 rounded-full text-sm font-medium transition-all ${
+                activeTab === 'news' 
+                  ? 'bg-indigo-50 text-indigo-600 shadow-sm' 
+                  : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              <Newspaper className="w-5 h-5" />
+            </button>
+          </nav>
+          
+          {/* 右側按鈕組 */}
+          <div className="flex items-center space-x-1 flex-shrink-0">
             <button onClick={() => { fetchNews(); fetchCalendar(); fetchMarketData(); }} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
               <RefreshCw className={`w-5 h-5 ${newsLoading || calendarLoading || marketLoading ? 'animate-spin' : ''}`} />
             </button>
+            
+            {/* 漢堡菜單 (手機版) */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden p-2 text-slate-400 hover:text-indigo-600 transition-colors"
+            >
+              {mobileMenuOpen ? (
+                <X className="w-6 h-6" />
+              ) : (
+                <Menu className="w-6 h-6" />
+              )}
+            </button>
           </div>
         </div>
+
+        {/* 手機版下拉菜單 */}
+        {mobileMenuOpen && (
+          <div className="md:hidden bg-white border-t border-slate-200 py-2 shadow-lg">
+            {menuItems.slice(1).map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center px-4 py-3 text-sm font-medium transition-all ${
+                  activeTab === tab.id 
+                    ? 'bg-indigo-50 text-indigo-600 border-l-4 border-indigo-600' 
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <tab.icon className="w-4 h-4 mr-3" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8">
@@ -308,24 +361,25 @@ const App = () => {
                       <p className="text-slate-500 text-sm line-clamp-2 mb-4">{item.summary || item.description || '無摘要'}</p>
                       <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                         <div className="flex items-center text-indigo-600 mb-2">
-                          <TrendingUp className="w-4 h-4 mr-1.5" />
-                          <span className="text-xs font-bold uppercase tracking-widest">AI 深度解讀</span>
+                          <TrendingUp className="w-4 h-4 mr-2" />
+                          <span className="text-xs font-bold uppercase">AI 投資解讀</span>
                         </div>
-                        <p className="text-slate-700 text-sm leading-relaxed">{item.aiInsight || item.aiAnalysis || '暫無解讀'}</p>
+                        <p className="text-slate-600 text-sm leading-relaxed">{item.aiInsight || '暫無解讀'}</p>
                       </div>
                     </div>
                     <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
-                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-indigo-600 hover:underline flex items-center">
-                        閱讀原文 <ChevronRight className="w-3 h-3 ml-0.5" />
+                      <span className="text-xs text-slate-400">{item.source}</span>
+                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-700 font-bold text-xs flex items-center">
+                        閱讀原文 <ChevronRight className="w-3 h-3 ml-1" />
                       </a>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-12">
-                <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                <p className="text-slate-500">暫無新聞數據</p>
+              <div className="text-center py-12 text-slate-400">
+                <Newspaper className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>暫無新聞內容</p>
               </div>
             )}
           </ErrorBoundary>
@@ -334,63 +388,44 @@ const App = () => {
         {/* 經濟日曆標籤 */}
         {activeTab === 'calendar' && (
           <ErrorBoundary error={calendarError}>
-            {calendarLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw className="animate-spin text-indigo-600 w-8 h-8" />
-              </div>
-            ) : calendar.length > 0 ? (
-              <div className="max-w-3xl mx-auto space-y-6">
-                {calendar.map((day, i) => (
-                  <div key={i} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="bg-slate-50 px-6 py-3 border-b border-slate-200">
-                      <h3 className="font-bold text-slate-700 flex items-center">
-                        <Calendar className="w-4 h-4 mr-2 text-indigo-600" />
-                        {day.date || day.time || '未知日期'}
-                      </h3>
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {day.events && Array.isArray(day.events) ? day.events.map((ev, j) => (
-                        <div key={j} className="p-6 hover:bg-slate-50 transition-colors">
-                          <div className="flex justify-between items-start mb-3">
-                            <div>
-                              <span className="text-sm font-mono text-slate-400 mr-3">{ev.time || '--'}</span>
-                              <span className="font-bold text-slate-800">{ev.event || '未知事件'}</span>
-                            </div>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                              ev.impact === 'high' ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'
-                            }`}>
-                              {ev.impact === 'high' ? '高影響' : '中影響'}
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4 mb-4">
-                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                              <div className="text-[10px] text-slate-400 uppercase font-bold">預測值</div>
-                              <div className="text-sm font-bold text-slate-700">{ev.forecast || '--'}</div>
-                            </div>
-                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                              <div className="text-[10px] text-slate-400 uppercase font-bold">前值</div>
-                              <div className="text-sm font-bold text-slate-700">{ev.previous || '--'}</div>
-                            </div>
+            <div className="max-w-4xl mx-auto">
+              <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
+                <h2 className="text-2xl font-bold mb-6 flex items-center">
+                  <Calendar className="w-6 h-6 mr-2 text-indigo-600" />
+                  經濟日曆
+                </h2>
+                {calendarLoading ? (
+                  <div className="flex items-center justify-center py-12"><RefreshCw className="animate-spin text-indigo-600 w-8 h-8" /></div>
+                ) : calendar.length > 0 ? (
+                  <div className="space-y-4">
+                    {calendar.map((event, i) => (
+                      <div key={i} className="flex items-start space-x-4 p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-indigo-200 transition-colors">
+                        <div className="flex-shrink-0 w-20 text-center">
+                          <div className="text-sm font-bold text-slate-600">{event.date}</div>
+                          <div className="text-xs text-slate-400">{event.time}</div>
+                        </div>
+                        <div className="flex-grow">
+                          <h3 className="font-bold text-slate-800 mb-1">{event.name}</h3>
+                          <p className="text-sm text-slate-500 mb-2">{event.description}</p>
+                          <div className="flex items-center space-x-4 text-xs">
+                            <span className="text-slate-400">預期: <span className="font-bold text-slate-600">{event.forecast}</span></span>
+                            <span className="text-slate-400">前值: <span className="font-bold text-slate-600">{event.previous}</span></span>
                           </div>
                         </div>
-                      )) : (
-                        <div className="p-6">
-                          <span className="font-bold text-slate-800">{day.event || day.title || '未知事件'}</span>
-                          <p className="text-sm text-slate-600 bg-indigo-50 p-3 rounded-xl border border-indigo-100 italic mt-3">
-                            {day.aiAnalysis || day.description || '暫無分析'}
-                          </p>
+                        <div className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-bold ${event.importance === '高' ? 'bg-rose-100 text-rose-600' : event.importance === '中' ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                          {event.importance}重要
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <div className="text-center py-12 text-slate-400">
+                    <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>暫無日曆事件</p>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="text-center py-12">
-                <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                <p className="text-slate-500">暫無日曆數據</p>
-              </div>
-            )}
+            </div>
           </ErrorBoundary>
         )}
 
@@ -445,7 +480,7 @@ const App = () => {
 
         {/* 術語百科標籤 */}
         {activeTab === 'wiki' && (
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-3xl mx-auto">
             <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
               <h2 className="text-2xl font-bold mb-6 flex items-center">
                 <BookOpen className="w-6 h-6 mr-2 text-indigo-600" />
@@ -709,8 +744,12 @@ const App = () => {
           100% { transform: translateX(-50%); }
         }
         .animate-marquee {
-          display: inline-block;
           animation: marquee 30s linear infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-marquee {
+            animation: none;
+          }
         }
       `}</style>
     </div>
