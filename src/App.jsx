@@ -405,8 +405,8 @@ const App = () => {
                           <div className="text-xs text-slate-400">{event.time}</div>
                         </div>
                         <div className="flex-grow">
-                          <h3 className="font-bold text-slate-800 mb-1">{event.name}</h3>
-                          <p className="text-sm text-slate-500 mb-2">{event.description}</p>
+                          <h3 className="font-bold text-slate-800 mb-1">{event.name || '未知事件'}</h3>
+                          <p className="text-sm text-slate-500 mb-2">{event.description || '暫無描述'}</p>
                           <div className="flex items-center space-x-4 text-xs">
                             <span className="text-slate-400">預期: <span className="font-bold text-slate-600">{event.forecast}</span></span>
                             <span className="text-slate-400">前值: <span className="font-bold text-slate-600">{event.previous}</span></span>
