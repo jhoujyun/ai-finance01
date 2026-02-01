@@ -79,8 +79,8 @@ export default async function handler(req, res) {
     const NEWS_API_KEY = process.env.NEWS_API_KEY;
     if (!NEWS_API_KEY) throw new Error('未設定 NEWS_API_KEY');
 
-    // 1. 從 NewsAPI 抓取新聞（抓取 9 篇）
-    const newsResponse = await fetch(`https://newsapi.org/v2/top-headlines?category=business&language=en&pageSize=9&apiKey=${NEWS_API_KEY}`);
+    // 1. 從 NewsAPI 抓取新聞（抓取更多，以備不時之需）
+    const newsResponse = await fetch(`https://newsapi.org/v2/top-headlines?category=business&language=en&pageSize=12&apiKey=${NEWS_API_KEY}`);
     if (!newsResponse.ok) throw new Error(`NewsAPI 錯誤: ${newsResponse.status}`);
     const newsData = await newsResponse.json();
     const articles = newsData.articles || [];
@@ -96,7 +96,10 @@ export default async function handler(req, res) {
     if (OPENAI_API_KEY) {
       dailyRequestCount++; // 每次更新只算一次總請求
       
-      const processingPromises = articles.slice(0, 9).map((article, index) => 
+      // 確保至少有 9 篇文章用於處理，不足則用空對象填充
+      const articlesToProcess = Array(9).fill(null).map((_, i) => articles[i] || { title: `Placeholder ${i+1}`, description: `No content for placeholder ${i+1}`, source: { name: 'System' }, publishedAt: new Date().toISOString(), url: '#' });
+
+      const processingPromises = articlesToProcess.map((article, index) => 
         processSingleArticle(article, index, BASE_URL, OPENAI_API_KEY, MODEL)
       );
 
@@ -104,7 +107,7 @@ export default async function handler(req, res) {
       const results = await Promise.allSettled(processingPromises);
       
       processedNews = results.map((result, index) => {
-        const originalArticle = articles[index];
+        const originalArticle = articlesToProcess[index]; // 使用 articlesToProcess 來獲取原始文章
         if (result.status === 'fulfilled') {
           return {
             id: index + 1,
@@ -121,7 +124,7 @@ export default async function handler(req, res) {
         } else {
           // 處理失敗，使用原始數據作為回退
           console.error(`處理新聞 ${index + 1} 失敗:`, result.reason);
-          return createFallbackNews([originalArticle], `AI 處理失敗: ${result.reason.message || '未知錯誤'}`)[0];
+          return createFallbackNews([originalArticle], `AI 處理失敗: ${result.reason?.message || '未知錯誤'}`)[0];
         }
       });
 
