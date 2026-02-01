@@ -95,6 +95,18 @@ const App = () => {
     localStorage.setItem('portfolio', JSON.stringify(portfolio));
   }, [portfolio]);
 
+  // 動態更新頁面標題
+  useEffect(() => {
+    const tabTitles = {
+      'news': 'AI 全球財經終端 - 即時新聞',
+      'calendar': 'AI 全球財經終端 - 經濟日曆',
+      'portfolio': 'AI 全球財經終端 - 投資組合',
+      'wiki': 'AI 全球財經終端 - 術語百科',
+      'calc': 'AI 全球財經終端 - 財經計算器'
+    };
+    document.title = tabTitles[activeTab] || 'AI 全球財經終端';
+  }, [activeTab]);
+
   useEffect(() => {
     fetchNews();
     fetchCalendar();
@@ -253,9 +265,7 @@ const App = () => {
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           {/* Logo 和標題 */}
           <div className="flex items-center space-x-2 flex-shrink-0">
-            <div className="bg-indigo-600 p-1.5 rounded-lg">
-              <TrendingUp className="text-white w-5 h-5" />
-            </div>
+            <img src="/logo.svg" alt="AI 全球財經終端 Logo" className="w-10 h-10 md:w-12 md:h-12" />
             <h1 className="text-base md:text-xl font-bold tracking-tight text-slate-800 whitespace-nowrap">AI 全球財經終端</h1>
           </div>
           

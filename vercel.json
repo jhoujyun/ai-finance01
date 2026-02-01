@@ -1,7 +1,15 @@
 {
-  "version": 2,
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+  "redirects": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.f-url.com"
+        }
+      ],
+      "destination": "https://f-url.com/",
+      "permanent": true
+    }
   ]
 }
